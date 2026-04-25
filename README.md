@@ -152,6 +152,4 @@ streamlit run app.py
 
 ---
 
-## 📝 License
-
-MIT License — Built for learning and portfolio demonstration.
+## Deployed Link

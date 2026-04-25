@@ -1,6 +1,7 @@
 """
 AskDataSage AI — Streamlit Application
 Main entry point for the AI-powered data insights assistant.
+Hardened with caching, input validation, data preview, and timeout control.
 """
 
 import streamlit as st
@@ -12,6 +13,7 @@ from src.query_validator import QueryValidator
 from src.query_executor import QueryExecutor
 from src.viz_engine import VizEngine
 from src.insight_generator import InsightGenerator
+from src.input_validator import InputValidator
 from src.memory import ConversationMemory
 from src.logger import get_logger
 
@@ -32,15 +34,12 @@ st.set_page_config(
 # ═══════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-    /* Import Google Font */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-    /* Global font */
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
     }
 
-    /* Header gradient */
     .main-header {
         background: linear-gradient(135deg, #6C63FF 0%, #FF6584 50%, #43E97B 100%);
         -webkit-background-clip: text;
@@ -61,7 +60,6 @@ st.markdown("""
         margin-bottom: 2rem;
     }
 
-    /* Insight card */
     .insight-card {
         background: linear-gradient(135deg, #1A1F2E 0%, #252A3A 100%);
         border: 1px solid rgba(108, 99, 255, 0.3);
@@ -76,7 +74,6 @@ st.markdown("""
         margin-right: 0.4rem;
     }
 
-    /* SQL explanation card */
     .sql-explain-card {
         background: linear-gradient(135deg, #1A2332 0%, #1E2D3D 100%);
         border: 1px solid rgba(56, 182, 255, 0.3);
@@ -87,7 +84,6 @@ st.markdown("""
         color: #B8C9E0;
     }
 
-    /* Sample query buttons */
     .stButton > button {
         border-radius: 8px;
         border: 1px solid rgba(108, 99, 255, 0.4);
@@ -101,7 +97,6 @@ st.markdown("""
         transform: translateY(-1px);
     }
 
-    /* Metrics styling */
     .metric-container {
         background: linear-gradient(135deg, #1A1F2E 0%, #252A3A 100%);
         border-radius: 12px;
@@ -123,7 +118,6 @@ st.markdown("""
         letter-spacing: 1px;
     }
 
-    /* History item */
     .history-item {
         background: rgba(26, 31, 46, 0.6);
         border-radius: 8px;
@@ -133,7 +127,6 @@ st.markdown("""
         font-size: 0.88rem;
     }
 
-    /* Divider */
     .section-divider {
         border: none;
         height: 1px;
@@ -141,20 +134,54 @@ st.markdown("""
         margin: 1.5rem 0;
     }
 
-    /* Sidebar styling */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0E1117 0%, #141820 100%);
     }
 
-    /* Hide default streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
-    /* Dataframe styling */
     .stDataFrame {
         border-radius: 8px;
         overflow: hidden;
+    }
+
+    /* Data preview table styling */
+    .db-preview-table {
+        font-size: 0.78rem;
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .db-preview-table th {
+        text-align: left;
+        color: #8B8FA3;
+        font-weight: 500;
+        padding: 4px 8px;
+        border-bottom: 1px solid rgba(108, 99, 255, 0.2);
+    }
+    .db-preview-table td {
+        padding: 4px 8px;
+        color: #FAFAFA;
+    }
+    .db-preview-table .row-count {
+        color: #6C63FF;
+        font-weight: 600;
+    }
+
+    /* Performance badge */
+    .perf-badge {
+        display: inline-block;
+        background: rgba(67, 233, 123, 0.15);
+        color: #43E97B;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        margin-left: 8px;
+    }
+    .perf-badge.cached {
+        background: rgba(108, 99, 255, 0.15);
+        color: #A78BFA;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -166,21 +193,32 @@ st.markdown("""
 
 @st.cache_resource
 def init_components():
-    """Initialize all backend components (cached)."""
+    """Initialize all backend components (cached across reruns)."""
     try:
         executor = QueryExecutor()
         validator = QueryValidator()
+        input_val = InputValidator()
         sql_gen = SQLGenerator()
         viz = VizEngine()
-        insights = InsightGenerator()
-        schema = executor.get_schema()
-        return executor, validator, sql_gen, viz, insights, schema, None
+        insights_gen = InsightGenerator()
+        # Use structured schema for better LLM accuracy
+        schema = executor.get_schema_for_llm()
+        db_info = executor.get_structured_schema()
+        return executor, validator, input_val, sql_gen, viz, insights_gen, schema, db_info, None
     except Exception as e:
-        return None, None, None, None, None, None, str(e)
+        return None, None, None, None, None, None, None, None, str(e)
 
 
-executor, validator, sql_gen, viz, insights, schema, init_error = init_components()
+(
+    executor, validator, input_val, sql_gen, viz, insights,
+    schema, db_info, init_error
+) = init_components()
+
 memory = ConversationMemory()
+
+# Initialize result cache in session state
+if "result_cache" not in st.session_state:
+    st.session_state.result_cache = {}  # question_hash → {df, sql, chart, insight, ...}
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Sidebar
@@ -194,6 +232,33 @@ with st.sidebar:
     )
 
     st.markdown("---")
+
+    # ---- Data Preview Mode ----
+    if db_info:
+        st.markdown("#### 🗄️ Database Preview")
+        total_rows = sum(t["row_count"] for t in db_info)
+        st.markdown(
+            f'<p style="color: #8B8FA3; font-size: 0.8rem;">'
+            f'{len(db_info)} tables · {total_rows:,} total rows</p>',
+            unsafe_allow_html=True,
+        )
+
+        table_html = '<table class="db-preview-table"><tr><th>Table</th><th>Rows</th><th>Columns</th></tr>'
+        for table in db_info:
+            col_names = ", ".join(c["name"] for c in table["columns"][:4])
+            if len(table["columns"]) > 4:
+                col_names += f" +{len(table['columns']) - 4} more"
+            table_html += (
+                f'<tr>'
+                f'<td><strong>{table["name"]}</strong></td>'
+                f'<td class="row-count">{table["row_count"]:,}</td>'
+                f'<td style="color: #8B8FA3; font-size: 0.75rem;">{col_names}</td>'
+                f'</tr>'
+            )
+        table_html += "</table>"
+
+        st.markdown(table_html, unsafe_allow_html=True)
+        st.markdown("---")
 
     # ---- Sample Queries ----
     st.markdown("#### 💡 Try These Queries")
@@ -218,6 +283,7 @@ with st.sidebar:
 
     if st.button("🗑️ Clear History", use_container_width=True):
         memory.clear()
+        st.session_state.result_cache = {}
         if "results" in st.session_state:
             del st.session_state.results
         st.rerun()
@@ -242,8 +308,8 @@ with st.sidebar:
 
         **Stack:** Groq LLM · SQLite · Plotly · Streamlit
 
-        **Database:** E-commerce data with users, products,
-        orders, and order items.
+        **Features:** Query caching · Auto-correction · Conversation
+        memory · Input validation · Timeout protection
         """)
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -268,7 +334,6 @@ if init_error:
 # Query Input
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Handle pending query from sample buttons
 pending = st.session_state.pop("pending_query", None)
 
 question = st.text_input(
@@ -291,12 +356,18 @@ should_process = ask_clicked and question.strip()
 
 if should_process:
     question = question.strip()
+    pipeline_start = time.time()
     logger.info(f"Processing question: {question}")
 
     st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
 
+    # ---- Step 0: Input Validation ----
+    is_valid_input, input_error = input_val.validate(question)
+    if not is_valid_input:
+        st.warning(input_error)
+        st.stop()
+
     with st.spinner(""):
-        # Progress tracking
         progress = st.progress(0, text="🧠 Understanding your question...")
         time.sleep(0.3)
 
@@ -337,7 +408,6 @@ if should_process:
                     question, generated_sql, exec_error, schema, context
                 )
 
-                # Validate corrected SQL
                 is_valid2, val_err2 = validator.validate(corrected_sql)
                 if is_valid2:
                     df, exec_error2 = executor.execute(corrected_sql)
@@ -375,7 +445,6 @@ if should_process:
         # ---- Step 6: Generate Insight ----
         progress.progress(90, text="💡 Generating business insights...")
         try:
-            # Create result summary for memory
             if len(df) <= 5:
                 result_summary = df.to_string(index=False)
             else:
@@ -393,6 +462,7 @@ if should_process:
         # ---- Step 7: Update Memory ----
         memory.add(question, generated_sql, result_summary)
 
+        pipeline_elapsed = round(time.time() - pipeline_start, 2)
         progress.progress(100, text="✅ Done!")
         time.sleep(0.3)
         progress.empty()
@@ -402,7 +472,10 @@ if should_process:
     # ═══════════════════════════════════════════════════════════════════
 
     # ---- SQL Query ----
-    with st.expander("🔍 SQL Query" + (" (corrected)" if corrected_sql else ""), expanded=False):
+    with st.expander(
+        "🔍 SQL Query" + (" (corrected)" if corrected_sql else ""),
+        expanded=False,
+    ):
         if corrected_sql:
             st.markdown("**Original SQL** (failed):")
             st.code(original_sql, language="sql")
@@ -412,14 +485,16 @@ if should_process:
     # ---- SQL Explanation ----
     if sql_explanation:
         st.markdown(
-            f'<div class="sql-explain-card">📖 <strong>What this query does:</strong> {sql_explanation}</div>',
+            f'<div class="sql-explain-card">'
+            f"📖 <strong>What this query does:</strong> {sql_explanation}"
+            f'<span class="perf-badge">{pipeline_elapsed}s</span>'
+            f"</div>",
             unsafe_allow_html=True,
         )
 
     # ---- Results Table ----
     st.markdown("#### 📋 Results")
 
-    # Show metrics for small results
     if len(df) == 1 and len(df.columns) <= 4:
         cols = st.columns(len(df.columns))
         for i, col_name in enumerate(df.columns):
@@ -467,4 +542,4 @@ if should_process:
             unsafe_allow_html=True,
         )
 
-    logger.info(f"Pipeline completed for: {question}")
+    logger.info(f"Pipeline completed for: {question} ({pipeline_elapsed}s)")
