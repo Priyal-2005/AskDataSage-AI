@@ -32,7 +32,7 @@ IRRELEVANT_PATTERNS = [
     r"^(hi|hello|hey|yo|sup)\b",
     r"^(thanks|thank you|bye|goodbye)",
     r"^(who are you|what are you|your name)",
-    r"^(write|code|program|build|create|make)\s+(a|an|me|the)\s+(app|website|program|script)",
+    r"^(write|code|program|build|create|make)\b.*(app|website|program|script|code|function)",
     r"^(tell me a joke|sing|poem|story)",
 ]
 

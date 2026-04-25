@@ -431,6 +431,9 @@ if should_process:
             st.code(generated_sql, language="sql")
             st.stop()
 
+        # ---- Handle empty results ----
+        is_empty_result = df is not None and df.empty
+
         # ---- Step 4: Explain SQL ----
         progress.progress(65, text="📖 Explaining the query...")
         try:
@@ -439,25 +442,32 @@ if should_process:
             sql_explanation = ""
 
         # ---- Step 5: Generate Visualization ----
-        progress.progress(80, text="📊 Creating visualization...")
-        chart = viz.generate_chart(df, question)
+        chart = None
+        if not is_empty_result:
+            progress.progress(80, text="📊 Creating visualization...")
+            chart = viz.generate_chart(df, question)
 
         # ---- Step 6: Generate Insight ----
-        progress.progress(90, text="💡 Generating business insights...")
-        try:
-            if len(df) <= 5:
-                result_summary = df.to_string(index=False)
-            else:
-                result_summary = (
-                    f"{len(df)} rows returned. "
-                    f"Columns: {', '.join(df.columns.tolist())}. "
-                    f"Sample: {df.head(3).to_string(index=False)}"
-                )
+        insight_text = ""
+        result_summary = ""
+        if not is_empty_result:
+            progress.progress(90, text="💡 Generating business insights...")
+            try:
+                if len(df) <= 5:
+                    result_summary = df.to_string(index=False)
+                else:
+                    result_summary = (
+                        f"{len(df)} rows returned. "
+                        f"Columns: {', '.join(df.columns.tolist())}. "
+                        f"Sample: {df.head(3).to_string(index=False)}"
+                    )
 
-            insight_text = insights.generate_insight(question, generated_sql, df)
-        except Exception:
-            insight_text = ""
-            result_summary = f"{len(df)} rows returned"
+                insight_text = insights.generate_insight(question, generated_sql, df)
+            except Exception:
+                insight_text = ""
+                result_summary = f"{len(df)} rows returned"
+        else:
+            result_summary = "No results found"
 
         # ---- Step 7: Update Memory ----
         memory.add(question, generated_sql, result_summary)
@@ -492,54 +502,65 @@ if should_process:
             unsafe_allow_html=True,
         )
 
-    # ---- Results Table ----
-    st.markdown("#### 📋 Results")
-
-    if len(df) == 1 and len(df.columns) <= 4:
-        cols = st.columns(len(df.columns))
-        for i, col_name in enumerate(df.columns):
-            with cols[i]:
-                value = df.iloc[0][col_name]
-                if isinstance(value, float):
-                    value = f"{value:,.2f}"
-                st.markdown(
-                    f'<div class="metric-container">'
-                    f'<div class="metric-value">{value}</div>'
-                    f'<div class="metric-label">{col_name}</div>'
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
+    # ---- Empty result message ----
+    if is_empty_result:
+        st.info(
+            "📭 **No results found** for this query. "
+            "Try broadening your question or checking the filters.\n\n"
+            "💡 Examples: *\"Show all products\"*, *\"Revenue by category\"*, "
+            "*\"Orders last 6 months\"*"
+        )
+        logger.info(f"Empty result for: {question} ({pipeline_elapsed}s)")
     else:
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            height=min(400, 35 * len(df) + 38),
+        # ---- Results Table ----
+        st.markdown("#### 📋 Results")
+
+        if len(df) == 1 and len(df.columns) <= 4:
+            cols = st.columns(len(df.columns))
+            for i, col_name in enumerate(df.columns):
+                with cols[i]:
+                    value = df.iloc[0][col_name]
+                    if isinstance(value, float):
+                        value = f"{value:,.2f}"
+                    st.markdown(
+                        f'<div class="metric-container">'
+                        f'<div class="metric-value">{value}</div>'
+                        f'<div class="metric-label">{col_name}</div>'
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                height=min(400, 35 * len(df) + 38),
+            )
+            st.caption(f"Showing {len(df)} rows × {len(df.columns)} columns")
+
+        # ---- Download CSV ----
+        csv_data = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "📥 Download as CSV",
+            data=csv_data,
+            file_name="askdatasage_results.csv",
+            mime="text/csv",
         )
-        st.caption(f"Showing {len(df)} rows × {len(df.columns)} columns")
 
-    # ---- Download CSV ----
-    csv_data = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "📥 Download as CSV",
-        data=csv_data,
-        file_name="askdatasage_results.csv",
-        mime="text/csv",
-    )
+        # ---- Chart ----
+        if chart:
+            st.markdown("#### 📊 Visualization")
+            st.plotly_chart(chart, use_container_width=True, theme=None)
 
-    # ---- Chart ----
-    if chart:
-        st.markdown("#### 📊 Visualization")
-        st.plotly_chart(chart, use_container_width=True, theme=None)
-
-    # ---- Business Insight ----
-    if insight_text:
-        st.markdown("#### 💡 Business Insight")
-        st.markdown(
-            f'<div class="insight-card">'
-            f'<span class="insight-icon">🧠</span> {insight_text}'
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+        # ---- Business Insight ----
+        if insight_text:
+            st.markdown("#### 💡 Business Insight")
+            st.markdown(
+                f'<div class="insight-card">'
+                f'<span class="insight-icon">🧠</span> {insight_text}'
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
     logger.info(f"Pipeline completed for: {question} ({pipeline_elapsed}s)")
+

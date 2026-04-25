@@ -92,7 +92,7 @@ class VizEngine:
                 date_col = types["datetime"][0]
                 num_col = types["numeric"][0]
                 df_sorted = df.copy()
-                df_sorted[date_col] = pd.to_datetime(df_sorted[date_col])
+                df_sorted.loc[:, date_col] = pd.to_datetime(df_sorted[date_col])
                 df_sorted = df_sorted.sort_values(date_col)
 
                 if types["categorical"]:

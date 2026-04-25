@@ -25,6 +25,8 @@ User Question → SQL Generation → Safety Validation → Execution → Visuali
 - **📊 Smart Visualizations** — Rule-based chart selection (bar, line, histogram, pie, scatter)
 - **💡 Business Insights** — LLM-generated analysis highlighting trends and patterns
 - **💬 Conversation Memory** — Supports follow-up questions with context
+- **⚡ Caching** — Repeat queries served instantly without LLM calls
+- **⏱️ Timeout Protection** — SQL and LLM calls bounded to prevent hangs
 - **📥 CSV Export** — Download results with one click
 - **🎨 Premium Dark UI** — Modern Streamlit interface with glassmorphism styling
 
@@ -34,38 +36,41 @@ User Question → SQL Generation → Safety Validation → Execution → Visuali
 
 ```mermaid
 graph TD
-    A[👤 User Question] --> B[🧠 SQL Generator]
-    B --> C[🛡️ Query Validator]
-    C -->|Valid| D[⚡ Query Executor]
-    C -->|Invalid| E[❌ Block & Report]
-    D -->|Success| F[📊 Viz Engine]
-    D -->|Error| G[🔧 Correction Loop]
-    G --> C
-    F --> H[💡 Insight Generator]
-    H --> I[📋 Results Display]
+    A[👤 User Question] --> B[🔍 Input Validator]
+    B --> C[🧠 SQL Generator]
+    C --> D[🛡️ Query Validator]
+    D -->|Valid| E[⚡ Query Executor]
+    D -->|Invalid| F[❌ Block & Report]
+    E -->|Success| G[📊 Viz Engine]
+    E -->|Error| H[🔧 Correction Loop]
+    H --> D
+    G --> I[💡 Insight Generator]
+    I --> J[📋 Results Display]
 
     style A fill:#6C63FF,color:#fff
-    style B fill:#FF6584,color:#fff
-    style C fill:#43E97B,color:#fff
-    style D fill:#38B6FF,color:#fff
-    style F fill:#FFB347,color:#fff
-    style H fill:#A78BFA,color:#fff
-    style I fill:#34D399,color:#fff
+    style B fill:#FFB347,color:#fff
+    style C fill:#FF6584,color:#fff
+    style D fill:#43E97B,color:#fff
+    style E fill:#38B6FF,color:#fff
+    style G fill:#FFB347,color:#fff
+    style I fill:#A78BFA,color:#fff
+    style J fill:#34D399,color:#fff
 ```
 
 ### Project Structure
 
 ```
 AskDataSage AI/
-├── app.py                    # Streamlit entry point
+├── streamlit_app.py          # Streamlit entry point
 ├── src/
-│   ├── sql_generator.py      # LLM → SQL conversion + correction
+│   ├── sql_generator.py      # LLM → SQL conversion + correction + caching
 │   ├── query_validator.py    # Safety validation (SELECT-only)
-│   ├── query_executor.py     # SQLite execution → DataFrame
+│   ├── query_executor.py     # SQLite execution → DataFrame + timeout
 │   ├── viz_engine.py         # Rule-based Plotly charts
-│   ├── insight_generator.py  # LLM business insights + SQL explanation
+│   ├── insight_generator.py  # LLM business insights + SQL explanation + caching
+│   ├── input_validator.py    # User input validation
 │   ├── memory.py             # Conversational memory
-│   └── logger.py             # Structured logging
+│   └── logger.py             # Structured logging with rotation
 ├── data/
 │   ├── generate_data.py      # Database seed script
 │   └── ecommerce.db          # SQLite database (generated)
@@ -87,7 +92,7 @@ pip install -r requirements.txt
 
 ### 2. Configure API Key
 
-Get a free API key from [console.groq.com](https://console.groq.com), then update `.env`:
+Get a free API key from [console.groq.com](https://console.groq.com), then create `.env`:
 
 ```env
 GROQ_API_KEY=gsk_your_actual_key_here
@@ -108,7 +113,7 @@ This creates a realistic e-commerce database with:
 ### 4. Launch
 
 ```bash
-streamlit run app.py
+streamlit run streamlit_app.py
 ```
 
 ---
@@ -133,8 +138,10 @@ streamlit run app.py
 - **SELECT-only** — All write operations are blocked at the validation layer
 - **Read-only DB** — Database connections use SQLite read-only mode
 - **Keyword blocking** — DROP, DELETE, UPDATE, INSERT, ALTER, and 10+ more keywords are rejected
-- **Comment stripping** — SQL comments are blocked to prevent injection
+- **Comment blocking** — SQL comments are blocked to prevent injection
 - **Single-statement only** — Multiple statements separated by semicolons are rejected
+- **Input validation** — Irrelevant inputs and code requests are rejected before reaching the LLM
+- **Timeout protection** — SQL queries (10s) and LLM calls (30s) are bounded
 
 ---
 
@@ -147,9 +154,5 @@ streamlit run app.py
 | Data Processing | Pandas | DataFrame operations |
 | Visualization | Plotly | Interactive charts |
 | UI Framework | Streamlit | Web application |
-| Validation | sqlparse + regex | Query safety |
+| Validation | Regex-based | Query & input safety |
 | Data Generation | Faker | Realistic test data |
-
----
-
-## Deployed Link

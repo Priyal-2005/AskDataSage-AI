@@ -6,7 +6,6 @@ Includes timeout control, structured schema extraction, and database preview.
 
 import os
 import sqlite3
-import signal
 import time
 
 import pandas as pd
