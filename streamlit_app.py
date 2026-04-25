@@ -563,4 +563,3 @@ if should_process:
             )
 
     logger.info(f"Pipeline completed for: {question} ({pipeline_elapsed}s)")
-

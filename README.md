@@ -87,7 +87,7 @@ AskDataSage AI/
 
 ```bash
 cd "AskDataSage AI"
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 ### 2. Configure API Key
@@ -101,7 +101,7 @@ GROQ_API_KEY=gsk_your_actual_key_here
 ### 3. Generate Database
 
 ```bash
-python data/generate_data.py
+python3 data/generate_data.py
 ```
 
 This creates a realistic e-commerce database with:
@@ -113,7 +113,7 @@ This creates a realistic e-commerce database with:
 ### 4. Launch
 
 ```bash
-streamlit run streamlit_app.py
+python3 -m streamlit run streamlit_app.py
 ```
 
 ---
