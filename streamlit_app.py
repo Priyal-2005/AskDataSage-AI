@@ -2,6 +2,10 @@
 AskDataSage AI — Streamlit Application
 Main entry point for the AI-powered data insights assistant.
 Hardened with caching, input validation, data preview, and timeout control.
+
+State management: All pipeline results are stored in st.session_state so they
+persist across Streamlit reruns. The rendering logic reads from session_state,
+not from transient variables inside the button click block.
 """
 
 import streamlit as st
@@ -216,9 +220,13 @@ def init_components():
 
 memory = ConversationMemory()
 
-# Initialize result cache in session state
-if "result_cache" not in st.session_state:
-    st.session_state.result_cache = {}  # question_hash → {df, sql, chart, insight, ...}
+# ═══════════════════════════════════════════════════════════════════════════
+# Session State Initialization
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Pipeline results — persisted across reruns so results never vanish
+if "last_result" not in st.session_state:
+    st.session_state.last_result = None  # Will hold the full result dict
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Sidebar
@@ -274,7 +282,10 @@ with st.sidebar:
 
     for label, query in sample_queries:
         if st.button(label, key=f"sample_{label}", use_container_width=True):
-            st.session_state.pending_query = query
+            # Set both: the text input value AND an auto-submit flag
+            st.session_state.query_input = query
+            st.session_state.auto_submit = True
+            st.rerun()
 
     st.markdown("---")
 
@@ -283,9 +294,7 @@ with st.sidebar:
 
     if st.button("🗑️ Clear History", use_container_width=True):
         memory.clear()
-        st.session_state.result_cache = {}
-        if "results" in st.session_state:
-            del st.session_state.results
+        st.session_state.last_result = None
         st.rerun()
 
     # ---- Query History ----
@@ -334,11 +343,10 @@ if init_error:
 # Query Input
 # ═══════════════════════════════════════════════════════════════════════════
 
-pending = st.session_state.pop("pending_query", None)
-
+# text_input with key only — Streamlit manages the value via session_state
+# (no `value=` parameter, so it never resets on rerun)
 question = st.text_input(
     "🔍 Ask a question about your data",
-    value=pending or "",
     placeholder="e.g., What are the top 5 products by revenue?",
     key="query_input",
     label_visibility="collapsed",
@@ -348,10 +356,13 @@ col_ask, col_spacer = st.columns([1, 4])
 with col_ask:
     ask_clicked = st.button("🚀 Ask DataSage", type="primary", use_container_width=True)
 
-should_process = ask_clicked and question.strip()
+# Check for auto-submit from sample buttons
+auto_submit = st.session_state.pop("auto_submit", False)
+
+should_process = (ask_clicked or auto_submit) and question.strip()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Processing Pipeline
+# Processing Pipeline — results stored in session_state
 # ═══════════════════════════════════════════════════════════════════════════
 
 if should_process:
@@ -478,8 +489,39 @@ if should_process:
         progress.empty()
 
     # ═══════════════════════════════════════════════════════════════════
-    # Display Results
+    # Store results in session_state so they survive reruns
     # ═══════════════════════════════════════════════════════════════════
+    st.session_state.last_result = {
+        "question": question,
+        "generated_sql": generated_sql,
+        "original_sql": original_sql,
+        "corrected_sql": corrected_sql,
+        "df": df,
+        "chart": chart,
+        "sql_explanation": sql_explanation,
+        "insight_text": insight_text,
+        "is_empty_result": is_empty_result,
+        "pipeline_elapsed": pipeline_elapsed,
+    }
+    logger.info(f"Pipeline completed for: {question} ({pipeline_elapsed}s)")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Display Results — ALWAYS rendered from session_state (survives reruns)
+# ═══════════════════════════════════════════════════════════════════════════
+
+result = st.session_state.last_result
+
+if result is not None:
+    st.markdown('<hr class="section-divider">', unsafe_allow_html=True)
+
+    df = result["df"]
+    generated_sql = result["generated_sql"]
+    original_sql = result["original_sql"]
+    corrected_sql = result["corrected_sql"]
+    sql_explanation = result["sql_explanation"]
+    insight_text = result["insight_text"]
+    is_empty_result = result["is_empty_result"]
+    pipeline_elapsed = result["pipeline_elapsed"]
 
     # ---- SQL Query ----
     with st.expander(
@@ -510,7 +552,6 @@ if should_process:
             "💡 Examples: *\"Show all products\"*, *\"Revenue by category\"*, "
             "*\"Orders last 6 months\"*"
         )
-        logger.info(f"Empty result for: {question} ({pipeline_elapsed}s)")
     else:
         # ---- Results Table ----
         st.markdown("#### 📋 Results")
@@ -561,5 +602,3 @@ if should_process:
                 f"</div>",
                 unsafe_allow_html=True,
             )
-
-    logger.info(f"Pipeline completed for: {question} ({pipeline_elapsed}s)")
