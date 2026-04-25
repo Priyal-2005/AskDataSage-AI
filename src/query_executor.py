@@ -191,7 +191,7 @@ class QueryExecutor:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-            tables = [row[0] for row in cursor.fetchall()]
+            tables = [row[0] for row in cursor.fetchall() if not row[0].startswith("sqlite_")]
             samples = []
             for table in tables:
                 df = pd.read_sql_query(f"SELECT * FROM {table} LIMIT {limit}", conn)
