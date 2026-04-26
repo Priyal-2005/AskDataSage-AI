@@ -156,3 +156,9 @@ python3 -m streamlit run streamlit_app.py
 | UI Framework | Streamlit | Web application |
 | Validation | Regex-based | Query & input safety |
 | Data Generation | Faker | Realistic test data |
+
+---
+
+## 🔗 Deployed Link
+
+https://askdata-ai.streamlit.app/
