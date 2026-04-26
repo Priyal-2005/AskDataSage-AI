@@ -11,12 +11,11 @@ import time
 import pandas as pd
 
 from src.logger import get_logger
+from data.database import get_connection, DB_PATH
 
 logger = get_logger("executor")
 
-DEFAULT_DB_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "ecommerce.db"
-)
+DEFAULT_DB_PATH = str(DB_PATH)
 MAX_ROWS = 10_000
 SQL_TIMEOUT_SECONDS = 10  # Max time for any single query
 
@@ -31,15 +30,9 @@ class QueryExecutor:
 
     def __init__(self, db_path: str = DEFAULT_DB_PATH):
         self.db_path = db_path
-        if not os.path.exists(db_path):
-            raise FileNotFoundError(
-                f"Database not found at: {db_path}\n"
-                "Run `python data/generate_data.py` to create it."
-            )
 
     def _get_connection(self) -> sqlite3.Connection:
-        uri = f"file:{self.db_path}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True, timeout=SQL_TIMEOUT_SECONDS)
+        conn = get_connection(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 

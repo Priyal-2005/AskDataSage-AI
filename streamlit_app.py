@@ -17,6 +17,7 @@ from src.query_executor import QueryExecutor, DEFAULT_DB_PATH
 from src.query_validator import QueryValidator
 from src.sql_generator import SQLGenerator
 from src.viz_engine import VizEngine
+from data.database import init_database, get_debug_info
 
 logger = get_logger("app")
 
@@ -254,9 +255,11 @@ if "ui_settings" not in st.session_state:
 # Initialize demo schema safely
 if not st.session_state.demo_schema:
     try:
-        demo_exec = QueryExecutor(DEFAULT_DB_PATH)
-        st.session_state.demo_schema = demo_exec.get_schema_for_llm()
-        st.session_state.demo_db_info = demo_exec.get_structured_schema()
+        with st.spinner("Initializing demo database (this may take a moment)..."):
+            db_path = init_database()
+            demo_exec = QueryExecutor(db_path)
+            st.session_state.demo_schema = demo_exec.get_schema_for_llm()
+            st.session_state.demo_db_info = demo_exec.get_structured_schema()
     except Exception as e:
         logger.error(f"Demo DB init failed: {e}")
 
@@ -265,7 +268,7 @@ def get_current_context():
     if st.session_state.mode == "demo":
         if not st.session_state.demo_schema:
             return None, None, None
-        return DEFAULT_DB_PATH, st.session_state.demo_schema, st.session_state.demo_db_info
+        return init_database(), st.session_state.demo_schema, st.session_state.demo_db_info
     else:
         info = st.session_state.user_data_info
         if info:
@@ -372,6 +375,12 @@ with st.sidebar:
     if st.button("🗑️ Clear Conversation", use_container_width=True, type="secondary"):
         reset_chat()
         st.rerun()
+
+    st.markdown("---")
+    
+    with st.expander("🛠️ Debug Info"):
+        info = get_debug_info()
+        st.json(info)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Main UI - Hero & Empty State
